@@ -51,17 +51,11 @@ namespace StardewMCPBridge
 
             this.SyncFromNpc();
 
-            // Register in otherFarmers for location activation + game mechanics
-            Game1.otherFarmers[this.Shadow.UniqueMultiplayerID] = this.Shadow;
-
-            this.monitor.Log($"Shadow farmer created for {name} (UID: {this.Shadow.UniqueMultiplayerID}, registered in otherFarmers)", LogLevel.Info);
-        }
-
-        /// <summary>Unregister from otherFarmers on cleanup.</summary>
-        public void Unregister()
-        {
-            Game1.otherFarmers.Remove(this.Shadow.UniqueMultiplayerID);
-            this.monitor.Log($"Shadow farmer {this.Name} unregistered from otherFarmers", LogLevel.Info);
+            // NOTE: Do NOT add Shadow to Game1.otherFarmers. That collection is the
+            // network-synced remote-player table; Multiplayer.updateRoots() walks it every
+            // tick expecting net-backed farmers and NPEs on a hand-built one. The visual NPC
+            // handles rendering and the shadow's mechanics are driven directly, so it isn't needed.
+            this.monitor.Log($"Shadow farmer created for {name} (UID: {this.Shadow.UniqueMultiplayerID})", LogLevel.Info);
         }
 
         /// <summary>Sync shadow farmer position/location from the visible NPC.</summary>

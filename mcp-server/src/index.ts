@@ -10,14 +10,24 @@ import {
 // Point these to where the SMAPI mod is installed (its Mods/StardewMCPBridge/ folder)
 const BRIDGE_PATH = process.env.STARDEW_BRIDGE_PATH
     || path.resolve(__dirname, "../../smapi-mod/bridge_data.json");
-const ACTION_PATH = process.env.STARDEW_ACTION_PATH
-    || path.resolve(__dirname, "../../smapi-mod/actions.json");
+const ACTION_DIR = process.env.STARDEW_ACTION_DIR
+    || path.resolve(__dirname, "../../smapi-mod/actions");
+
+// Monotonic counter so two commands issued within the same millisecond still
+// get distinct, lexically-ordered filenames (single-threaded server, no locking needed).
+let actionSeq = 0;
 
 function sendAction(action: object): string {
-    // Atomic write: write to temp file then rename to prevent partial reads
-    const tmpPath = ACTION_PATH + ".tmp";
+    // One immutable file per command. The mod drains them in filename order and
+    // deletes each after processing — a race-free queue that can't drop or
+    // double-execute commands the way a single overwritten file could.
+    fs.mkdirSync(ACTION_DIR, { recursive: true });
+    const name = `${Date.now()}-${String(actionSeq++).padStart(6, "0")}`;
+    const finalPath = path.join(ACTION_DIR, `${name}.json`);
+    const tmpPath = `${finalPath}.tmp`;
+    // Atomic publish: write to temp then rename so the mod never reads a partial file.
     fs.writeFileSync(tmpPath, JSON.stringify(action));
-    fs.renameSync(tmpPath, ACTION_PATH);
+    fs.renameSync(tmpPath, finalPath);
     return "Command sent.";
 }
 
@@ -403,7 +413,13 @@ class StardewBridgeServer {
                     case "stardew_action":
                         if (!a.actionType)
                             return err("actionType is required.");
-                        return ok(sendAction(a));
+                        // Forward only the known fields rather than the raw args object,
+                        // so arbitrary client-supplied keys can't leak into the bridge.
+                        return ok(sendAction({
+                            actionType: a.actionType,
+                            ...(a.x != null ? { x: a.x } : {}),
+                            ...(a.y != null ? { y: a.y } : {}),
+                        }));
 
                     // --- Player mode: companion-targeted commands ---
                     case "stardew_get_surroundings":

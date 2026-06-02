@@ -211,7 +211,6 @@ namespace StardewMCPBridge
         {
             foreach (var kvp in this.companions)
             {
-                kvp.Value.Companion.Unregister();
                 var npc = kvp.Value.Companion.Visual;
                 npc.currentLocation?.characters.Remove(npc);
             }

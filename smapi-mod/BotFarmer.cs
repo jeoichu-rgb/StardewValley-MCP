@@ -7,7 +7,9 @@ namespace StardewMCPBridge
 {
     /// <summary>
     /// A Farmer subclass that serves as an AI-controlled farmhand.
-    /// Registered in Game1.otherFarmers for location activation + game mechanics.
+    /// Drives game mechanics (tools, combat, fishing, inventory) directly on the instance.
+    /// Deliberately NOT added to Game1.otherFarmers — that table is the network-synced
+    /// remote-player collection and Multiplayer.updateRoots() NPEs on a non-net-backed farmer.
     /// Invisible — the paired NPC handles all rendering.
     /// </summary>
     public class BotFarmer : Farmer

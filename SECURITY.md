@@ -29,12 +29,12 @@ There are no network calls, no cloud services, no external APIs. The mod writes 
 
 ## File Access
 
-The mod reads and writes two files in its own mod folder:
+The mod reads and writes the following in its own mod folder:
 
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
 | `bridge_data.json` | Game state snapshot (read by MCP server) |
-| `actions.json` | Command queue (written by MCP server, read by mod) |
+| `actions/` | Command queue — one file per command (written by MCP server, drained by mod) |
 
 These files contain only game data (time of day, player position, crop states, etc). No personal information is stored.
 

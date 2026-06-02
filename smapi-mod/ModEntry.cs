@@ -13,7 +13,7 @@ namespace StardewMCPBridge
     public class ModEntry : Mod
     {
         private string bridgePath;
-        private string actionPath;
+        private string actionDir;
         private BotManager botManager;
         private Texture2D companion1Portrait;
         private Texture2D companion2Portrait;
@@ -24,7 +24,7 @@ namespace StardewMCPBridge
         {
             this.botManager = new BotManager(this.Monitor, helper);
             this.bridgePath = Path.Combine(helper.DirectoryPath, "bridge_data.json");
-            this.actionPath = Path.Combine(helper.DirectoryPath, "actions.json");
+            this.actionDir = Path.Combine(helper.DirectoryPath, "actions");
 
             helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
             helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
@@ -178,40 +178,75 @@ namespace StardewMCPBridge
         {
             try
             {
-                if (!File.Exists(this.actionPath))
+                if (!Directory.Exists(this.actionDir))
                     return;
 
-                string json = File.ReadAllText(this.actionPath);
-
-                // Delete FIRST to avoid race: MCP writes new action between read and delete
-                File.Delete(this.actionPath);
-
-                if (string.IsNullOrWhiteSpace(json))
+                // Drain the queue oldest-first. Each command is its own file named
+                // <timestamp>-<seq>.json, so ordinal filename sort is chronological.
+                string[] files = Directory.GetFiles(this.actionDir, "*.json");
+                if (files.Length == 0)
                     return;
+                Array.Sort(files, StringComparer.Ordinal);
 
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-
-                if (!root.TryGetProperty("actionType", out var actionType))
-                    return;
-
-                // Route to bot manager for companion actions
-                this.botManager.ProcessAction(json);
-
-                // Handle chat separately (not a companion action)
-                if (actionType.GetString() == "chat")
+                foreach (string file in files)
                 {
-                    if (root.TryGetProperty("metadata", out var meta) &&
-                        meta.TryGetProperty("message", out var msg))
+                    string json;
+                    try
                     {
-                        Game1.chatBox?.addMessage(msg.GetString(), Microsoft.Xna.Framework.Color.Gold);
-                        this.Monitor.Log($"Chat sent: {msg.GetString()}", LogLevel.Info);
+                        json = File.ReadAllText(file);
+                        // Delete immediately so each command is consumed exactly once,
+                        // even if handling below throws.
+                        File.Delete(file);
+                    }
+                    catch (Exception ex)
+                    {
+                        this.Monitor.Log($"Action read error ({Path.GetFileName(file)}): {ex.Message}", LogLevel.Error);
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(json))
+                        continue;
+
+                    try
+                    {
+                        this.HandleAction(json);
+                    }
+                    catch (Exception ex)
+                    {
+                        this.Monitor.Log($"Action handling error: {ex.Message}", LogLevel.Error);
                     }
                 }
             }
             catch (Exception ex)
             {
                 this.Monitor.Log($"Action Processing Error: {ex.Message}", LogLevel.Error);
+            }
+        }
+
+        private void HandleAction(string json)
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (!root.TryGetProperty("actionType", out var actionType))
+                return;
+
+            // Route to bot manager for companion actions
+            this.botManager.ProcessAction(json);
+
+            // Handle chat separately (not a companion action)
+            if (actionType.GetString() == "chat")
+            {
+                if (root.TryGetProperty("metadata", out var meta) &&
+                    meta.TryGetProperty("message", out var msg))
+                {
+                    string text = msg.GetString();
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        Game1.chatBox?.addMessage(text, Microsoft.Xna.Framework.Color.Gold);
+                        this.Monitor.Log($"Chat sent: {text}", LogLevel.Info);
+                    }
+                }
             }
         }
     }

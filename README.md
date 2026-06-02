@@ -18,7 +18,7 @@ Also supports autonomous modes (follow, farm, mine, fish) for hands-off play.
                                                               └──────────────┘
 ```
 
-**SMAPI Mod** (`smapi-mod/`): Runs inside the game. Spawns companion NPCs paired with shadow `Farmer` instances registered in `Game1.otherFarmers`. The shadow farmer handles all game mechanics (tools, combat, fishing, inventory) while the NPC provides the visible custom sprite. Writes game state to `bridge_data.json`, reads commands from `actions.json`.
+**SMAPI Mod** (`smapi-mod/`): Runs inside the game. Spawns companion NPCs paired with shadow `Farmer` instances. The shadow farmer handles all game mechanics (tools, combat, fishing, inventory) while the NPC provides the visible custom sprite. Writes game state to `bridge_data.json`, reads commands from the `actions/` queue.
 
 **MCP Server** (`mcp-server/`): Exposes 25 tools over stdio transport. 13 global tools for mode-based control + 12 Player mode tools for direct companion control.
 
@@ -140,7 +140,7 @@ Add to your MCP client config (e.g., Claude Code's `settings.json`):
       "args": ["path/to/mcp-server/build/index.js"],
       "env": {
         "STARDEW_BRIDGE_PATH": "path/to/Mods/StardewMCPBridge/bridge_data.json",
-        "STARDEW_ACTION_PATH": "path/to/Mods/StardewMCPBridge/actions.json"
+        "STARDEW_ACTION_DIR": "path/to/Mods/StardewMCPBridge/actions"
       }
     }
   }
