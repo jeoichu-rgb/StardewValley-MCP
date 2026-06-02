@@ -27,7 +27,7 @@ Also supports autonomous modes (follow, farm, mine, fish) for hands-off play.
 Each companion is a visible NPC paired with a hidden "shadow farmer" that handles game mechanics:
 
 - **NPC** — Custom sprite, pathfinding, visible to the player
-- **Shadow Farmer** — Extends `Farmer` class, registered in `Game1.otherFarmers` for location activation. Holds tools/inventory, performs tool use, combat, and fishing through actual game APIs. Invisible (draw is no-op).
+- **Shadow Farmer** — Extends `Farmer` class. Holds tools/inventory, performs tool use, combat, and fishing through actual game APIs. Invisible (draw is no-op).
 
 ### Modes
 
@@ -165,9 +165,9 @@ stardew-mcp-bridge/
 │   ├── ModEntry.cs              # SMAPI entry point, content pipeline, bridge I/O, sleep hooks
 │   ├── BotManager.cs            # Companion lifecycle, action routing, direct control commands
 │   ├── CompanionAI.cs           # AI behavior system (follow/farm/mine/fish/idle/player)
-│   ├── CompanionFarmer.cs       # NPC + shadow farmer pairing, tool/combat/fishing, otherFarmers registration
+│   ├── CompanionFarmer.cs       # NPC + shadow farmer pairing, tool/combat/fishing
 │   ├── CompanionActions.cs      # Direct tile manipulation (water/harvest/clear/hoe)
-│   ├── BotFarmer.cs             # Shadow Farmer subclass (invisible, registered as Player 2/3)
+│   ├── BotFarmer.cs             # Shadow Farmer subclass (invisible, drives mechanics directly)
 │   ├── SurroundingsScanner.cs   # Tile scanner — the companion's "eyes"
 │   ├── manifest.json            # SMAPI mod manifest
 │   ├── StardewMCPBridge.csproj
@@ -184,7 +184,7 @@ stardew-mcp-bridge/
 
 ### Player 2 Feature (New)
 
-- **Shadow farmer registration** — BotFarmer registered in `Game1.otherFarmers` for location activation and game mechanics
+- **Shadow farmer mechanics** — BotFarmer drives tool use, combat, and fishing directly; deliberately *not* added to `Game1.otherFarmers` (that table is network-synced and `Multiplayer.updateRoots()` NPEs on a non-net-backed farmer)
 - **Invisible shadow farmer** — `draw()` is a no-op; the NPC sprite handles all rendering
 - **Sleep sync** — Bot farmers auto-signal sleep readiness on day end and at 2 AM to prevent deadlocks
 - **Player mode** — New `CompanionMode.Player` disables autonomous AI; all control comes from MCP
