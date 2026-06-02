@@ -4,6 +4,8 @@ AI companions for Stardew Valley, controlled through the [Model Context Protocol
 
 Also supports autonomous modes (follow, farm, mine, fish) for hands-off play.
 
+![Companions in game](images/companions-ingame.png)
+
 ## Architecture
 
 ```
