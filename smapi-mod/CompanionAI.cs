@@ -37,6 +37,7 @@ namespace StardewMCPBridge
         private int actionCooldown = 0;
         private int pathCooldown = 0;
         private Vector2? currentTarget = null;
+        private Vector2 lastFollowTarget = Vector2.Zero;
         private bool isFishing = false;
         private int fishingWaitTicks = 0;
         private int stuckTicks = 0;
@@ -116,23 +117,32 @@ namespace StardewMCPBridge
 
             if (distance > 3 && this.pathCooldown <= 0)
             {
-                try
+                // Skip recalc if player hasn't moved much (prevents flickering on sharp turns)
+                if (Vector2.Distance(playerPos, this.lastFollowTarget) < 2 && this.npc.controller != null)
                 {
-                    var offset = this.Companion.Name == "Companion2" ? 1 : -1;
-                    var targetPoint = new Point((int)playerPos.X + offset, (int)playerPos.Y);
-                    this.npc.controller = new PathFindController(
-                        this.npc, this.npc.currentLocation,
-                        targetPoint, 2);
-                    this.pathCooldown = 4;
+                    this.pathCooldown = 5;
                 }
-                catch
+                else
                 {
-                    // Pathfinding failed — teleport close
-                    var offset = this.Companion.Name == "Companion2" ? new Vector2(64, 0) : new Vector2(-64, 0);
-                    this.npc.Position = Game1.player.Position + offset;
-                    this.npc.controller = null;
-                    this.Companion.SyncFromNpc();
-                    this.pathCooldown = 4;
+                    try
+                    {
+                        var offset = this.Companion.Name == "Companion2" ? 1 : -1;
+                        var targetPoint = new Point((int)playerPos.X + offset, (int)playerPos.Y);
+                        this.npc.controller = new PathFindController(
+                            this.npc, this.npc.currentLocation,
+                            targetPoint, 2);
+                        this.pathCooldown = 15;
+                        this.lastFollowTarget = playerPos;
+                    }
+                    catch
+                    {
+                        var offset = this.Companion.Name == "Companion2" ? new Vector2(64, 0) : new Vector2(-64, 0);
+                        this.npc.Position = Game1.player.Position + offset;
+                        this.npc.controller = null;
+                        this.Companion.SyncFromNpc();
+                        this.pathCooldown = 15;
+                        this.lastFollowTarget = playerPos;
+                    }
                 }
             }
 

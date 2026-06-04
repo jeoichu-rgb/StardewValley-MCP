@@ -51,7 +51,7 @@ namespace StardewMCPBridge
                 if (name == "Companion2") spawnPos += new Vector2(64, 0);
                 else if (name == "Companion1") spawnPos += new Vector2(-64, 0);
 
-                NPC botNpc = new NPC(
+                var botNpc = new CompanionNPC(
                     new AnimatedSprite($"Characters\\{name}", 0, 16, 32),
                     spawnPos,
                     Game1.player.currentLocation.Name,
