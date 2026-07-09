@@ -1,5 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import express from "express";
 import * as fs from "fs";
 import * as path from "path";
 import {
@@ -12,6 +13,7 @@ const BRIDGE_PATH = process.env.STARDEW_BRIDGE_PATH
     || path.resolve(__dirname, "../../smapi-mod/bridge_data.json");
 const ACTION_DIR = process.env.STARDEW_ACTION_DIR
     || path.resolve(__dirname, "../../smapi-mod/actions");
+const PORT = parseInt(process.env.STARDEW_MCP_PORT || "7845", 10);
 
 // Monotonic counter so two commands issued within the same millisecond still
 // get distinct, lexically-ordered filenames (single-threaded server, no locking needed).
@@ -92,27 +94,13 @@ const MODE_ENUM = ["follow", "farm", "mine", "fish", "idle", "player"];
 const TOOL_ENUM = ["pickaxe", "axe", "hoe", "watering_can", "sword"];
 const DIRECTION_DESC = "0=up, 1=right, 2=down, 3=left";
 
-class StardewBridgeServer {
-    private server: Server;
+function createServer(): Server {
+    const server = new Server(
+        { name: "stardew-mcp-bridge", version: "0.3.0" },
+        { capabilities: { tools: {} } }
+    );
 
-    constructor() {
-        this.server = new Server(
-            {
-                name: "stardew-mcp-bridge",
-                version: "0.3.0",
-            },
-            {
-                capabilities: {
-                    tools: {},
-                },
-            }
-        );
-
-        this.setupHandlers();
-    }
-
-    private setupHandlers() {
-        this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
             tools: [
                 // ============================
                 // GLOBAL TOOLS (existing)
@@ -361,7 +349,7 @@ class StardewBridgeServer {
             ],
         }));
 
-        this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const { name, arguments: args } = request.params;
             const a = (args || {}) as any;
 
@@ -520,13 +508,8 @@ class StardewBridgeServer {
                 return err(error.message);
             }
         });
-    }
 
-    async run() {
-        const transport = new StdioServerTransport();
-        await this.server.connect(transport);
-        console.error("Stardew MCP Bridge v0.3.0 running on stdio");
-    }
+    return server;
 }
 
 function ok(text: string) {
@@ -537,5 +520,44 @@ function err(text: string) {
     return { content: [{ type: "text" as const, text: `Error: ${text}` }] };
 }
 
-const server = new StardewBridgeServer();
-server.run().catch(console.error);
+const app = express();
+app.use(express.json());
+
+const transports = new Map<string, SSEServerTransport>();
+
+app.get("/sse", async (_req, res) => {
+    const server = createServer();
+    const transport = new SSEServerTransport("/message", res);
+    transports.set(transport.sessionId, transport);
+    res.on("close", () => {
+        transports.delete(transport.sessionId);
+        server.close().catch(() => {});
+    });
+    await server.connect(transport);
+});
+
+app.post("/message", async (req, res) => {
+    const sessionId = req.query.sessionId as string;
+    const transport = transports.get(sessionId);
+    if (transport) {
+        await transport.handlePostMessage(req, res);
+    } else {
+        res.status(400).json({ error: "Unknown session" });
+    }
+});
+
+app.get("/health", (_req, res) => {
+    res.json({
+        ok: true,
+        bridge: fs.existsSync(BRIDGE_PATH),
+        sessions: transports.size,
+        bridgePath: BRIDGE_PATH,
+        actionDir: ACTION_DIR,
+    });
+});
+
+app.listen(PORT, () => {
+    console.log(`Stardew MCP Bridge v0.3.0 (SSE) on http://localhost:${PORT}`);
+    console.log(`  SSE: http://localhost:${PORT}/sse`);
+    console.log(`  Bridge: ${BRIDGE_PATH}`);
+});
