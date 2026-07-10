@@ -1,6 +1,6 @@
 {
     "name": "stardew-mcp-bridge",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "MCP server bridging AI agents to Stardew Valley via SMAPI.",
     "main": "build/index.js",
     "files": [

@@ -61,6 +61,10 @@ namespace StardewMCPBridge
                 Game1.player.currentLocation.addCharacter(botNpc);
                 this.monitor.Log($"{name} placed at pixel ({spawnPos.X},{spawnPos.Y}), tile ({spawnPos.X / 64f:F1},{spawnPos.Y / 64f:F1})", LogLevel.Info);
 
+                // Register the relationship so gift/heart mechanics work from tick one
+                if (!Game1.player.friendshipData.ContainsKey(name))
+                    Game1.player.friendshipData.Add(name, new Friendship(0));
+
                 var companionFarmer = new CompanionFarmer(botNpc, name, this.monitor, this.helper);
                 var ai = new CompanionAI(companionFarmer, this.monitor);
                 ai.Mode = CompanionMode.Follow;
@@ -113,6 +117,19 @@ namespace StardewMCPBridge
                     ["maxHealth"] = companion.Shadow.maxHealth,
                     ["autoCombat"] = ai.AutoCombat
                 };
+
+                // Relationship state so the MCP side always knows where things stand
+                if (Game1.player.friendshipData.TryGetValue(kvp.Key, out var friendship))
+                {
+                    status["friendship"] = new
+                    {
+                        points = friendship.Points,
+                        hearts = friendship.Points / 250,
+                        relationship = friendship.Status.ToString(),
+                        giftsToday = friendship.GiftsToday,
+                        giftsThisWeek = friendship.GiftsThisWeek
+                    };
+                }
 
                 // Include surroundings scan in Player mode (the companion's "eyes")
                 if (ai.Mode == CompanionMode.Player)
@@ -252,10 +269,16 @@ namespace StardewMCPBridge
             switch (action)
             {
                 case "spawn":
+                    // Solo companion: Companion2 stays benched unless spawned
+                    // explicitly via spawn2.
                     this.SpawnBot("Companion1", "Guard");
-                    this.SpawnBot("Companion2", "Anchor");
                     this.SetAllMode(CompanionMode.Follow);
                     this.monitor.Log("Spawned and following", LogLevel.Info);
+                    break;
+
+                case "spawn2":
+                    this.SpawnBot("Companion2", "Anchor");
+                    this.SetAllMode(CompanionMode.Follow);
                     break;
 
                 case "follow":
@@ -508,6 +531,41 @@ namespace StardewMCPBridge
                         {
                             detail = $"Nothing to interact with at ({tx},{ty})";
                         }
+                        break;
+                    }
+
+                    // --- Speech ---
+                    case "speak":
+                    {
+                        string text = root.TryGetProperty("text", out var textProp) ? textProp.GetString() : null;
+                        int emote = root.TryGetProperty("emote", out var emoteProp) ? emoteProp.GetInt32() : -1;
+                        bool queueOnly = root.TryGetProperty("queue", out var queueProp) && queueProp.GetBoolean();
+                        var npc = companion.Visual;
+
+                        if (emote >= 0)
+                            npc.doEmote(emote);
+
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            var dialogue = new StardewValley.Dialogue(npc, null, text);
+                            if (queueOnly)
+                            {
+                                // Stage it: plays when the player next clicks us
+                                npc.CurrentDialogue.Push(dialogue);
+                                detail = "Dialogue staged for next interaction";
+                            }
+                            else
+                            {
+                                npc.CurrentDialogue.Clear();
+                                Game1.DrawDialogue(dialogue);
+                                detail = "Spoke";
+                            }
+                        }
+                        else
+                        {
+                            detail = emote >= 0 ? "Emoted" : "Nothing to say";
+                        }
+                        success = true;
                         break;
                     }
 

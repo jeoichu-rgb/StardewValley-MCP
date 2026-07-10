@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewValley;
@@ -13,12 +14,82 @@ namespace StardewMCPBridge
     /// </summary>
     public class CompanionNPC : NPC
     {
-        public float WidthScale { get; set; } = 1.3f;
+        // FarmSplitter-generated sheets are pixel-perfect FarmerRenderer output;
+        // no width compensation needed (1.3 was for hand-drawn legacy sprites).
+        public float WidthScale { get; set; } = 1.0f;
 
         public CompanionNPC(AnimatedSprite sprite, Vector2 position, string defaultMap,
             int facingDir, string name, Texture2D portrait, bool eventActor)
             : base(sprite, position, defaultMap, facingDir, name, portrait, eventActor)
         {
+        }
+
+        /// <summary>
+        /// Player right-clicked us. Vanilla checkAction dead-ends for us (no schedule,
+        /// empty dialogue stack), so take over: route gifts through the vanilla
+        /// friendship pipeline, show any dialogue the MCP side queued via "speak",
+        /// and report every interaction to the bridge so the real companion can answer.
+        /// </summary>
+        public override bool checkAction(Farmer who, GameLocation l)
+        {
+            if (who == null || Game1.eventUp)
+                return false;
+
+            // The friendship table only knows NPCs the game introduced itself;
+            // we spawned outside that flow, so register the relationship lazily.
+            if (!who.friendshipData.ContainsKey(Name))
+                who.friendshipData.Add(Name, new Friendship(0));
+
+            // Gift flow — vanilla handles taste lookup, points, bouquet/pendant
+            // dating logic, and the reaction text from Data/NPCGiftTastes.
+            if (who.ActiveObject != null && who.ActiveObject.canBeGivenAsGift())
+            {
+                var gift = who.ActiveObject;
+                string giftName = gift.DisplayName ?? gift.Name;
+                string qid = gift.QualifiedItemId;
+                int taste = 8;
+                try { taste = this.getGiftTasteForThisItem(gift); } catch { }
+
+                bool received = this.tryToReceiveActiveObject(who);
+                if (received)
+                {
+                    var friendship = who.friendshipData[Name];
+                    string kind = qid == "(O)458" ? "bouquet"
+                        : qid == "(O)460" ? "proposal"
+                        : "gift";
+                    BridgeEvents.Queue(kind, Name, new Dictionary<string, object>
+                    {
+                        ["item"] = giftName,
+                        ["qualifiedId"] = qid,
+                        ["taste"] = taste switch { 0 => "love", 2 => "like", 4 => "dislike", 6 => "hate", _ => "neutral" },
+                        ["friendshipPoints"] = friendship.Points,
+                        ["hearts"] = friendship.Points / 250,
+                        ["relationship"] = friendship.Status.ToString(),
+                    });
+                    this.faceTowardFarmerForPeriod(3000, 4, false, who);
+                }
+                return true;
+            }
+
+            // Plain talk: face her. If the MCP side staged dialogue, play it now;
+            // otherwise emote and let the bridge carry the moment upstream.
+            this.faceGeneralDirection(who.getStandingPosition(), 0, false, false);
+            this.grantConversationFriendship(who); // vanilla daily "talked to" +20, once per day
+
+            if (this.CurrentDialogue.Count > 0)
+            {
+                Game1.DrawDialogue(this.CurrentDialogue.Pop());
+                return true;
+            }
+
+            this.doEmote(20); // heart
+            BridgeEvents.Queue("talk", Name, new Dictionary<string, object>
+            {
+                ["heldItem"] = who.ActiveObject?.DisplayName,
+                ["location"] = l?.Name ?? this.currentLocation?.Name,
+                ["playerTile"] = new { x = (int)who.Tile.X, y = (int)who.Tile.Y },
+            });
+            return true;
         }
 
         public override void draw(SpriteBatch b, float alpha = 1f)

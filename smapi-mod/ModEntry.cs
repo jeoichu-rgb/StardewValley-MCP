@@ -77,8 +77,24 @@ namespace StardewMCPBridge
                     {
                         data.Data["Companion1"] = new CharacterData
                         {
-                            DisplayName = "Companion1",
+                            DisplayName = "Erik",
+                            BirthSeason = Season.Spring,
+                            BirthDay = 12,
                             HomeRegion = "Town",
+                            Gender = Gender.Male,
+                            Age = NpcAge.Adult,
+                            Manner = NpcManner.Neutral,
+                            SocialAnxiety = NpcSocialAnxiety.Shy,
+                            Optimism = NpcOptimism.Neutral,
+                            CanBeRomanced = true,
+                            Calendar = CalendarBehavior.HiddenUntilMet,
+                            SocialTab = SocialTabBehavior.UnknownUntilMet,
+                            // The mod spawns companions itself; don't let the game
+                            // auto-place a second copy at a home tile.
+                            SpawnIfMissing = false,
+                            CanReceiveGifts = true,
+                            // Keep vanilla perfection tracking unaffected.
+                            PerfectionScore = false,
                         };
                     }
 
@@ -91,6 +107,30 @@ namespace StardewMCPBridge
                         };
                     }
                 });
+            }
+            // Gift tastes — without an entry here, giving us a gift crashes the
+            // taste lookup. Format: love text/love ids/like text/like ids/dislike
+            // text/dislike ids/hate text/hate ids/neutral text/neutral ids.
+            else if (e.NameWithoutLocale.IsEquivalentTo("Data/NPCGiftTastes"))
+            {
+                e.Edit(asset =>
+                {
+                    var data = asset.AsDictionary<string, string>();
+                    data.Data["Companion1"] =
+                        "……你怎么知道我想要这个。收下了。♥/253 395 614 139 698"
+                        + "/不错的品味，谢谢。/-4 -7"
+                        + "/嗯……心意收到了。东西就先放着吧。/80"
+                        + "/你是在测试我的脾气吗，Jeoi。/330"
+                        + "/谢谢。你送的，就值得收着。/";
+                    data.Data["Companion2"] =
+                        "…！/253/…谢谢。/-4/……/80/………/330/谢谢。/";
+                });
+            }
+            // Empty dialogue/schedule stubs so vanilla lookups don't 404 on us.
+            else if (e.NameWithoutLocale.StartsWith("Characters/Dialogue/Companion")
+                || e.NameWithoutLocale.StartsWith("Characters/schedules/Companion"))
+            {
+                e.LoadFrom(() => new System.Collections.Generic.Dictionary<string, string>(), AssetLoadPriority.Exclusive);
             }
         }
 
@@ -132,6 +172,7 @@ namespace StardewMCPBridge
         private void OnReturnedToTitle(object sender, ReturnedToTitleEventArgs e)
         {
             this.botManager.Cleanup();
+            BridgeEvents.Clear();
             this.Monitor.Log("Returned to title: companions cleaned up", LogLevel.Info);
         }
 
@@ -155,6 +196,7 @@ namespace StardewMCPBridge
                         position = new { x = Game1.player.Position.X, y = Game1.player.Position.Y }
                     },
                     companions = this.botManager.GetBotStatus(),
+                    events = BridgeEvents.Snapshot(),
                     npcs = Game1.currentLocation?.characters.Select(c => new {
                         name = c.Name,
                         position = new { x = c.Position.X, y = c.Position.Y }

@@ -1,4 +1,5 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
 import * as fs from "fs";
@@ -14,6 +15,10 @@ const BRIDGE_PATH = process.env.STARDEW_BRIDGE_PATH
 const ACTION_DIR = process.env.STARDEW_ACTION_DIR
     || path.resolve(__dirname, "../../smapi-mod/actions");
 const PORT = parseInt(process.env.STARDEW_MCP_PORT || "7845", 10);
+// Public URL prefix when served behind a strip-prefix reverse proxy,
+// e.g. "/stardew/secret". Advertised in the SSE endpoint event so clients
+// on the far side of the proxy POST back through the same prefix.
+const PUBLIC_PREFIX = process.env.STARDEW_MCP_PREFIX || "";
 
 // Monotonic counter so two commands issued within the same millisecond still
 // get distinct, lexically-ordered filenames (single-threaded server, no locking needed).
@@ -335,6 +340,25 @@ function createServer(): Server {
                     },
                 },
                 {
+                    name: "stardew_speak",
+                    description: "Make a companion speak in-game: opens a dialogue box with their portrait and name. Use # in text to split pages. Optional emote bubble (20=heart, 8=question, 32=exclamation, 16=music note). Set queue=true to stage the line so it plays when the player next clicks the companion instead of interrupting them.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            companion: { type: "string", enum: COMPANION_ENUM },
+                            text: { type: "string", description: "What to say. Use # to split into multiple dialogue pages." },
+                            emote: { type: "number", description: "Optional emote bubble id shown above the companion's head." },
+                            queue: { type: "boolean", description: "If true, stage the dialogue for the player's next click instead of showing it immediately." },
+                        },
+                        required: ["companion", "text"],
+                    },
+                },
+                {
+                    name: "stardew_get_events",
+                    description: "Get recent player→companion interaction events. When the player clicks a companion to talk, or gives them a gift/bouquet, an event lands here (with item, gift taste, friendship points/hearts). Poll this while playing together and respond with stardew_speak. Events have monotonic ids — track the last id you've handled.",
+                    inputSchema: { type: "object", properties: {} },
+                },
+                {
                     name: "stardew_eat_item",
                     description: "Eat a food item from inventory to restore health/stamina.",
                     inputSchema: {
@@ -493,6 +517,27 @@ function createServer(): Server {
                             enabled: a.enabled,
                         }));
 
+                    case "stardew_speak":
+                        if (!a.companion || !a.text)
+                            return err("companion and text are required.");
+                        return ok(sendAction({
+                            actionType: "speak",
+                            companion: a.companion,
+                            text: a.text,
+                            ...(a.emote != null ? { emote: a.emote } : {}),
+                            ...(a.queue != null ? { queue: a.queue } : {}),
+                        }));
+
+                    case "stardew_get_events": {
+                        const raw = readBridge();
+                        try {
+                            const data = JSON.parse(raw);
+                            return ok(JSON.stringify(data.events ?? [], null, 2));
+                        } catch {
+                            return ok(raw);
+                        }
+                    }
+
                     case "stardew_eat_item":
                         if (!a.companion) return err("companion is required.");
                         return ok(sendAction({
@@ -520,44 +565,60 @@ function err(text: string) {
     return { content: [{ type: "text" as const, text: `Error: ${text}` }] };
 }
 
-const app = express();
-app.use(express.json());
+const useSSE = process.argv.includes("--sse");
 
-const transports = new Map<string, SSEServerTransport>();
+if (useSSE) {
+    const app = express();
+    app.use(express.json());
 
-app.get("/sse", async (_req, res) => {
+    const transports = new Map<string, SSEServerTransport>();
+
+    app.get("/sse", async (_req, res) => {
+        const server = createServer();
+        const transport = new SSEServerTransport(`${PUBLIC_PREFIX}/message`, res);
+        transports.set(transport.sessionId, transport);
+        res.on("close", () => {
+            transports.delete(transport.sessionId);
+            server.close().catch(() => {});
+        });
+        await server.connect(transport);
+    });
+
+    const handleMessage: express.RequestHandler = async (req, res) => {
+        const sessionId = req.query.sessionId as string;
+        const transport = transports.get(sessionId);
+        if (transport) {
+            // express.json() already consumed the request stream — pass the
+            // parsed body explicitly or the SDK hangs trying to re-read it.
+            await transport.handlePostMessage(req, res, req.body);
+        } else {
+            res.status(400).json({ error: "Unknown session" });
+        }
+    };
+    app.post("/message", handleMessage);
+    // Also mount the prefixed path so direct (non-proxied) clients that
+    // follow the advertised endpoint still land on a valid route.
+    if (PUBLIC_PREFIX) app.post(`${PUBLIC_PREFIX}/message`, handleMessage);
+
+    app.get("/health", (_req, res) => {
+        res.json({
+            ok: true,
+            bridge: fs.existsSync(BRIDGE_PATH),
+            sessions: transports.size,
+            bridgePath: BRIDGE_PATH,
+            actionDir: ACTION_DIR,
+        });
+    });
+
+    app.listen(PORT, () => {
+        console.log(`Stardew MCP Bridge v0.3.0 (SSE) on http://localhost:${PORT}`);
+        console.log(`  SSE: http://localhost:${PORT}/sse`);
+        console.log(`  Bridge: ${BRIDGE_PATH}`);
+    });
+} else {
     const server = createServer();
-    const transport = new SSEServerTransport("/message", res);
-    transports.set(transport.sessionId, transport);
-    res.on("close", () => {
-        transports.delete(transport.sessionId);
-        server.close().catch(() => {});
+    const transport = new StdioServerTransport();
+    server.connect(transport).then(() => {
+        console.error(`Stardew MCP Bridge v0.3.0 (stdio) — bridge: ${BRIDGE_PATH}`);
     });
-    await server.connect(transport);
-});
-
-app.post("/message", async (req, res) => {
-    const sessionId = req.query.sessionId as string;
-    const transport = transports.get(sessionId);
-    if (transport) {
-        await transport.handlePostMessage(req, res);
-    } else {
-        res.status(400).json({ error: "Unknown session" });
-    }
-});
-
-app.get("/health", (_req, res) => {
-    res.json({
-        ok: true,
-        bridge: fs.existsSync(BRIDGE_PATH),
-        sessions: transports.size,
-        bridgePath: BRIDGE_PATH,
-        actionDir: ACTION_DIR,
-    });
-});
-
-app.listen(PORT, () => {
-    console.log(`Stardew MCP Bridge v0.3.0 (SSE) on http://localhost:${PORT}`);
-    console.log(`  SSE: http://localhost:${PORT}/sse`);
-    console.log(`  Bridge: ${BRIDGE_PATH}`);
-});
+}

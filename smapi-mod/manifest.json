@@ -1,7 +1,7 @@
 {
     "Name": "Stardew MCP Bridge",
     "Author": "Antigravity",
-    "Version": "0.3.0",
+    "Version": "0.4.0",
     "Description": "AI companions as Player 2/3 in Stardew Valley, controlled through the Model Context Protocol.",
     "UniqueID": "Antigravity.StardewMCPBridge",
     "EntryDll": "StardewMCPBridge.dll",
