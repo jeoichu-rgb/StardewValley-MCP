@@ -94,7 +94,7 @@ function getCompanionInventory(companionName: string): string {
     }
 }
 
-const COMPANION_ENUM = ["Companion1", "Companion2"];
+const COMPANION_ENUM = ["Companion1"];
 const MODE_ENUM = ["follow", "farm", "mine", "fish", "idle", "player"];
 const TOOL_ENUM = ["pickaxe", "axe", "hoe", "watering_can", "sword"];
 const DIRECTION_DESC = "0=up, 1=right, 2=down, 3=left";

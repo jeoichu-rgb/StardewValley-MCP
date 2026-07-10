@@ -47,9 +47,7 @@ namespace StardewMCPBridge
 
                 var portrait = this.helper.ModContent.Load<Microsoft.Xna.Framework.Graphics.Texture2D>($"assets/{name}_portrait.png");
 
-                var spawnPos = Game1.player.Position;
-                if (name == "Companion2") spawnPos += new Vector2(64, 0);
-                else if (name == "Companion1") spawnPos += new Vector2(-64, 0);
+                var spawnPos = Game1.player.Position + new Vector2(-64, 0);
 
                 var botNpc = new CompanionNPC(
                     new AnimatedSprite($"Characters\\{name}", 0, 16, 32),
@@ -269,16 +267,9 @@ namespace StardewMCPBridge
             switch (action)
             {
                 case "spawn":
-                    // Solo companion: Companion2 stays benched unless spawned
-                    // explicitly via spawn2.
                     this.SpawnBot("Companion1", "Guard");
                     this.SetAllMode(CompanionMode.Follow);
                     this.monitor.Log("Spawned and following", LogLevel.Info);
-                    break;
-
-                case "spawn2":
-                    this.SpawnBot("Companion2", "Anchor");
-                    this.SetAllMode(CompanionMode.Follow);
                     break;
 
                 case "follow":

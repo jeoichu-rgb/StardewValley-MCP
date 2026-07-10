@@ -107,8 +107,7 @@ namespace StardewMCPBridge
             // Too far — teleport near player instead of pathfinding
             if (distance > 10)
             {
-                var offset = this.Companion.Name == "Companion2" ? new Vector2(64, 0) : new Vector2(-64, 0);
-                this.npc.Position = Game1.player.Position + offset;
+                this.npc.Position = Game1.player.Position + new Vector2(-64, 0);
                 this.npc.controller = null;
                 this.Companion.SyncFromNpc();
                 this.monitor.Log($"{this.Companion.Name}: Teleported near player (was {distance:F1} tiles away)", LogLevel.Debug);
@@ -126,8 +125,7 @@ namespace StardewMCPBridge
                 {
                     try
                     {
-                        var offset = this.Companion.Name == "Companion2" ? 1 : -1;
-                        var targetPoint = new Point((int)playerPos.X + offset, (int)playerPos.Y);
+                        var targetPoint = new Point((int)playerPos.X - 1, (int)playerPos.Y);
                         this.npc.controller = new PathFindController(
                             this.npc, this.npc.currentLocation,
                             targetPoint, 2);
@@ -136,8 +134,7 @@ namespace StardewMCPBridge
                     }
                     catch
                     {
-                        var offset = this.Companion.Name == "Companion2" ? new Vector2(64, 0) : new Vector2(-64, 0);
-                        this.npc.Position = Game1.player.Position + offset;
+                        this.npc.Position = Game1.player.Position + new Vector2(-64, 0);
                         this.npc.controller = null;
                         this.Companion.SyncFromNpc();
                         this.pathCooldown = 15;
@@ -484,8 +481,7 @@ namespace StardewMCPBridge
                 this.npc.controller = null;
                 this.currentTarget = null;
 
-                var offset = this.Companion.Name == "Companion2" ? new Vector2(64, 0) : new Vector2(-64, 0);
-                this.npc.Position = Game1.player.Position + offset;
+                this.npc.Position = Game1.player.Position + new Vector2(-64, 0);
                 this.npc.currentLocation = playerLocation;
                 playerLocation.addCharacter(this.npc);
 

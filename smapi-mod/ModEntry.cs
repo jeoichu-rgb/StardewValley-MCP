@@ -16,9 +16,7 @@ namespace StardewMCPBridge
         private string actionDir;
         private BotManager botManager;
         private Texture2D companion1Portrait;
-        private Texture2D companion2Portrait;
         private Texture2D companion1Sprite;
-        private Texture2D companion2Sprite;
 
         public override void Entry(IModHelper helper)
         {
@@ -40,9 +38,7 @@ namespace StardewMCPBridge
         private void OnGameLaunched(object sender, GameLaunchedEventArgs e)
         {
             this.companion1Portrait = this.Helper.ModContent.Load<Texture2D>("assets/Companion1_portrait.png");
-            this.companion2Portrait = this.Helper.ModContent.Load<Texture2D>("assets/Companion2_portrait.png");
             this.companion1Sprite = this.Helper.ModContent.Load<Texture2D>("assets/Companion1_sprite.png");
-            this.companion2Sprite = this.Helper.ModContent.Load<Texture2D>("assets/Companion2_sprite.png");
             this.Monitor.Log("Bridge online. Portraits and sprites loaded. Waiting for world.", LogLevel.Info);
         }
 
@@ -53,18 +49,10 @@ namespace StardewMCPBridge
             {
                 e.LoadFrom(() => this.companion1Portrait, AssetLoadPriority.Exclusive);
             }
-            else if (e.NameWithoutLocale.IsEquivalentTo("Portraits/Companion2"))
-            {
-                e.LoadFrom(() => this.companion2Portrait, AssetLoadPriority.Exclusive);
-            }
-            // Custom sprite sheets for walking animation
+            // Custom sprite sheet for walking animation
             else if (e.NameWithoutLocale.IsEquivalentTo("Characters/Companion1"))
             {
                 e.LoadFrom(() => this.companion1Sprite, AssetLoadPriority.Exclusive);
-            }
-            else if (e.NameWithoutLocale.IsEquivalentTo("Characters/Companion2"))
-            {
-                e.LoadFrom(() => this.companion2Sprite, AssetLoadPriority.Exclusive);
             }
             // Inject NPC data so the game considers us valid
             else if (e.NameWithoutLocale.IsEquivalentTo("Data/Characters"))
@@ -98,14 +86,6 @@ namespace StardewMCPBridge
                         };
                     }
 
-                    if (!data.Data.ContainsKey("Companion2"))
-                    {
-                        data.Data["Companion2"] = new CharacterData
-                        {
-                            DisplayName = "Companion2",
-                            HomeRegion = "Town",
-                        };
-                    }
                 });
             }
             // Gift tastes — without an entry here, giving us a gift crashes the
@@ -122,8 +102,6 @@ namespace StardewMCPBridge
                         + "/嗯……心意收到了。东西就先放着吧。/80"
                         + "/你是在测试我的脾气吗，Jeoi。/330"
                         + "/谢谢。你送的，就值得收着。/";
-                    data.Data["Companion2"] =
-                        "…！/253/…谢谢。/-4/……/80/………/330/谢谢。/";
                 });
             }
             // Empty dialogue/schedule stubs so vanilla lookups don't 404 on us.
