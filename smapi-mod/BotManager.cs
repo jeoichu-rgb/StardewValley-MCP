@@ -221,6 +221,41 @@ namespace StardewMCPBridge
             }
         }
 
+        // Where each companion NPC was standing when we pulled it out for the save.
+        private readonly Dictionary<string, GameLocation> parkedForSave = new Dictionary<string, GameLocation>();
+
+        /// <summary>Remove companion NPCs from the world so the save serializer never sees them.</summary>
+        public void DespawnForSave()
+        {
+            this.parkedForSave.Clear();
+            foreach (var kvp in this.companions)
+            {
+                var npc = kvp.Value.Companion.Visual;
+                var loc = npc.currentLocation;
+                if (loc != null && loc.characters.Contains(npc))
+                {
+                    this.parkedForSave[kvp.Key] = loc;
+                    loc.characters.Remove(npc);
+                }
+            }
+        }
+
+        /// <summary>Put parked companions back where they were after the save completes.</summary>
+        public void RespawnAfterSave()
+        {
+            foreach (var kvp in this.parkedForSave)
+            {
+                if (!this.companions.TryGetValue(kvp.Key, out var ai))
+                    continue;
+                var npc = ai.Companion.Visual;
+                var loc = kvp.Value;
+                if (!loc.characters.Contains(npc))
+                    loc.characters.Add(npc);
+                npc.currentLocation = loc;
+            }
+            this.parkedForSave.Clear();
+        }
+
         /// <summary>Clean up companions on return to title.</summary>
         public void Cleanup()
         {
@@ -267,7 +302,7 @@ namespace StardewMCPBridge
             switch (action)
             {
                 case "spawn":
-                    this.SpawnBot("Companion1", "Guard");
+                    this.SpawnBot("Erik", "Guard");
                     this.SetAllMode(CompanionMode.Follow);
                     this.monitor.Log("Spawned and following", LogLevel.Info);
                     break;

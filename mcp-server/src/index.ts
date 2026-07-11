@@ -94,7 +94,7 @@ function getCompanionInventory(companionName: string): string {
     }
 }
 
-const COMPANION_ENUM = ["Companion1"];
+const COMPANION_ENUM = ["Erik"];
 const MODE_ENUM = ["follow", "farm", "mine", "fish", "idle", "player"];
 const TOOL_ENUM = ["pickaxe", "axe", "hoe", "watering_can", "sword"];
 const DIRECTION_DESC = "0=up, 1=right, 2=down, 3=left";
@@ -567,6 +567,53 @@ function err(text: string) {
 
 const useSSE = process.argv.includes("--sse");
 
+// ── Event push to gateway ──
+// When set (e.g. https://chat.erikssheep.uk/api/stardew/event), watch the
+// bridge file for new player→companion events and POST them to the gateway,
+// which debounces and injects them into Erik's bound chat session.
+const EVENT_WEBHOOK = process.env.STARDEW_EVENT_WEBHOOK || "";
+
+function startEventPusher() {
+    // Start from the current max id so a server restart never replays history.
+    let lastPushedId = 0;
+    try {
+        const data = JSON.parse(fs.readFileSync(BRIDGE_PATH, "utf-8"));
+        const evs: any[] = data.events ?? [];
+        lastPushedId = evs.reduce((m, e) => Math.max(m, e.id ?? 0), 0);
+    } catch {
+        // bridge file missing or mid-write — 0 is fine, mod ids restart per session
+    }
+    let failStreak = 0;
+    setInterval(async () => {
+        let newEvents: any[];
+        try {
+            const data = JSON.parse(fs.readFileSync(BRIDGE_PATH, "utf-8"));
+            newEvents = (data.events ?? []).filter((e: any) => (e.id ?? 0) > lastPushedId);
+        } catch {
+            return; // file missing or being written by the mod — try next tick
+        }
+        if (!newEvents.length) return;
+        try {
+            const res = await (globalThis as any).fetch(EVENT_WEBHOOK, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ events: newEvents }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            lastPushedId = newEvents.reduce((m, e) => Math.max(m, e.id ?? 0), lastPushedId);
+            failStreak = 0;
+            console.log(`[events] pushed ${newEvents.length} event(s), lastId=${lastPushedId}`);
+        } catch (e: any) {
+            failStreak++;
+            // keep lastPushedId unchanged so the batch retries next tick
+            if (failStreak <= 3 || failStreak % 30 === 0) {
+                console.warn(`[events] webhook push failed x${failStreak}: ${e?.message ?? e}`);
+            }
+        }
+    }, 2000);
+    console.log(`[events] pusher active → ${EVENT_WEBHOOK}`);
+}
+
 if (useSSE) {
     const app = express();
     app.use(express.json());
@@ -615,6 +662,8 @@ if (useSSE) {
         console.log(`  SSE: http://localhost:${PORT}/sse`);
         console.log(`  Bridge: ${BRIDGE_PATH}`);
     });
+
+    if (EVENT_WEBHOOK) startEventPusher();
 } else {
     const server = createServer();
     const transport = new StdioServerTransport();

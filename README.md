@@ -9,7 +9,7 @@ Also supports autonomous modes (follow, farm, mine, fish) for hands-off play.
 ## Architecture
 
 ```
-┌──────────────┐    stdio     ┌──────────────┐   JSON files   ┌──────────────┐
+┌──────────────┐  stdio / SSE ┌──────────────┐   JSON files   ┌──────────────┐
 │  AI Agent    │◄────────────►│  MCP Server  │◄──────────────►│  SMAPI Mod   │
 │ (Claude etc) │              │  (Node.js)   │                │  (C# / .NET) │
 └──────────────┘              └──────────────┘                └──────┬───────┘
@@ -132,6 +132,10 @@ npm run build
 
 ### 4. Configure Your AI Agent
 
+The server supports two transports: **stdio** (default) and **SSE over HTTP** (`--sse` flag).
+
+#### Option A — stdio (local, simplest)
+
 Add to your MCP client config (e.g., Claude Code's `settings.json`):
 
 ```json
@@ -150,6 +154,40 @@ Add to your MCP client config (e.g., Claude Code's `settings.json`):
 ```
 
 If you're running both from the repo directory, the env vars are optional — it defaults to `../../smapi-mod/` relative paths.
+
+#### Option B — SSE server (remote clients, Claude Desktop connectors)
+
+Start the server as a long-running HTTP service:
+
+```bash
+node build/index.js --sse
+```
+
+Endpoints (default port `7845`, override with `STARDEW_MCP_PORT`):
+
+- `GET /sse` — MCP SSE endpoint
+- `POST /message` — MCP message channel
+- `GET /health` — health check (bridge file presence, active sessions)
+
+Register it with Claude Code:
+
+```bash
+claude mcp add --transport sse stardew http://localhost:7845/sse
+```
+
+**Exposing over HTTPS** (required for Claude Desktop custom connectors): put the
+server behind any HTTPS reverse proxy or tunnel. If the proxy strips a path
+prefix (e.g. Traefik `stripPrefix`), set `STARDEW_MCP_PREFIX` to that prefix so
+the SSE handshake advertises a message URL that routes back through the proxy:
+
+```bash
+STARDEW_MCP_PREFIX=/stardew/mysecret node build/index.js --sse
+# connector URL: https://your.domain/stardew/mysecret/sse
+```
+
+For SSE to stream through the proxy, disable response buffering (Traefik:
+`responseForwarding.flushInterval: "-1"`). The path prefix doubles as a shared
+secret — anyone with the URL can control your game, so treat it like a token.
 
 ### 5. Play
 

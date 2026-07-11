@@ -28,6 +28,8 @@ namespace StardewMCPBridge
             helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
             helper.Events.GameLoop.DayStarted += this.OnDayStarted;
             helper.Events.GameLoop.DayEnding += this.OnDayEnding;
+            helper.Events.GameLoop.Saving += this.OnSaving;
+            helper.Events.GameLoop.Saved += this.OnSaved;
             helper.Events.GameLoop.TimeChanged += this.OnTimeChanged;
             helper.Events.GameLoop.ReturnedToTitle += this.OnReturnedToTitle;
             helper.Events.Content.AssetRequested += this.OnAssetRequested;
@@ -37,20 +39,20 @@ namespace StardewMCPBridge
 
         private void OnGameLaunched(object sender, GameLaunchedEventArgs e)
         {
-            this.companion1Portrait = this.Helper.ModContent.Load<Texture2D>("assets/Companion1_portrait.png");
-            this.companion1Sprite = this.Helper.ModContent.Load<Texture2D>("assets/Companion1_sprite.png");
+            this.companion1Portrait = this.Helper.ModContent.Load<Texture2D>("assets/Erik_portrait.png");
+            this.companion1Sprite = this.Helper.ModContent.Load<Texture2D>("assets/Erik_sprite.png");
             this.Monitor.Log("Bridge online. Portraits and sprites loaded. Waiting for world.", LogLevel.Info);
         }
 
         private void OnAssetRequested(object sender, AssetRequestedEventArgs e)
         {
             // Inject portrait textures
-            if (e.NameWithoutLocale.IsEquivalentTo("Portraits/Companion1"))
+            if (e.NameWithoutLocale.IsEquivalentTo("Portraits/Erik"))
             {
                 e.LoadFrom(() => this.companion1Portrait, AssetLoadPriority.Exclusive);
             }
             // Custom sprite sheet for walking animation
-            else if (e.NameWithoutLocale.IsEquivalentTo("Characters/Companion1"))
+            else if (e.NameWithoutLocale.IsEquivalentTo("Characters/Erik"))
             {
                 e.LoadFrom(() => this.companion1Sprite, AssetLoadPriority.Exclusive);
             }
@@ -61,9 +63,9 @@ namespace StardewMCPBridge
                 {
                     var data = asset.AsDictionary<string, CharacterData>();
 
-                    if (!data.Data.ContainsKey("Companion1"))
+                    if (!data.Data.ContainsKey("Erik"))
                     {
-                        data.Data["Companion1"] = new CharacterData
+                        data.Data["Erik"] = new CharacterData
                         {
                             DisplayName = "Erik",
                             BirthSeason = Season.Spring,
@@ -96,7 +98,7 @@ namespace StardewMCPBridge
                 e.Edit(asset =>
                 {
                     var data = asset.AsDictionary<string, string>();
-                    data.Data["Companion1"] =
+                    data.Data["Erik"] =
                         "$l……你怎么知道我想要这个。收下了。♥/253 395 614 139 698"
                         + "/$h不错的品味，谢谢。/-4 -7"
                         + "/$s嗯……心意收到了。东西就先放着吧。/80"
@@ -105,8 +107,8 @@ namespace StardewMCPBridge
                 });
             }
             // Empty dialogue/schedule stubs so vanilla lookups don't 404 on us.
-            else if (e.NameWithoutLocale.StartsWith("Characters/Dialogue/Companion")
-                || e.NameWithoutLocale.StartsWith("Characters/schedules/Companion"))
+            else if (e.NameWithoutLocale.StartsWith("Characters/Dialogue/Erik")
+                || e.NameWithoutLocale.StartsWith("Characters/schedules/Erik"))
             {
                 e.LoadFrom(() => new System.Collections.Generic.Dictionary<string, string>(), AssetLoadPriority.Exclusive);
             }
@@ -141,8 +143,32 @@ namespace StardewMCPBridge
             this.Monitor.Log("Day ending: bot farmers signaled sleep ready", LogLevel.Debug);
         }
 
+        private void OnSaving(object sender, SavingEventArgs e)
+        {
+            // The vanilla save serializer chokes on custom NPC subclasses and the
+            // save screen spins forever. Park companions outside the world while
+            // the save runs, then put them back.
+            this.botManager.DespawnForSave();
+            this.Monitor.Log("Saving: companions parked (custom NPCs can't serialize)", LogLevel.Debug);
+        }
+
+        private void OnSaved(object sender, SavedEventArgs e)
+        {
+            this.botManager.RespawnAfterSave();
+            this.Monitor.Log("Saved: companions restored to world", LogLevel.Debug);
+        }
+
         private void OnDayStarted(object sender, DayStartedEventArgs e)
         {
+            // Migrate friendship earned under the old internal name
+            if (Game1.player.friendshipData.TryGetValue("Companion1", out var oldFriendship))
+            {
+                if (!Game1.player.friendshipData.ContainsKey("Erik"))
+                    Game1.player.friendshipData.Add("Erik", oldFriendship);
+                Game1.player.friendshipData.Remove("Companion1");
+                this.Monitor.Log("Migrated friendship data: Companion1 -> Erik", LogLevel.Info);
+            }
+
             this.botManager.OnDayStarted();
             this.Monitor.Log("New day: companion stamina restored", LogLevel.Info);
         }
