@@ -376,6 +376,9 @@ function createServer(): Server {
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const { name, arguments: args } = request.params;
             const a = (args || {}) as any;
+            // Legacy alias: the companion's internal id was renamed Companion1 -> Erik.
+            // Long-lived chat sessions still call with the old name; accept both.
+            if (a.companion === "Companion1") a.companion = "Erik";
 
             try {
                 // --- Global tools ---
