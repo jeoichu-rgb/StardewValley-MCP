@@ -40,6 +40,8 @@ namespace StardewMCPBridge
         private Vector2 lastFollowTarget = Vector2.Zero;
         private bool isFishing = false;
         private int fishingWaitTicks = 0;
+        private int fishingTargetTicks = 0;
+        private Vector2 fishingBobberTile = Vector2.Zero;
         private int stuckTicks = 0;
         private Vector2 lastPosition = Vector2.Zero;
 
@@ -343,31 +345,27 @@ namespace StardewMCPBridge
         // FISH MODE
         // ====================
 
+        // Performative fishing: the NPC can't play farmer rod animations (no such
+        // sprite frames) and the shadow farmer is invisible, so instead of driving
+        // the real FishingRod state machine we stand at the water, wait a random
+        // 15-40s, then roll a catch from the location's REAL fish table
+        // (season/weather/time-aware) with an escape chance scaled by the fish's
+        // Data/Fish difficulty. Every outcome is queued as a bridge event.
+
         private void DoFish()
         {
             this.WarpToPlayerIfNeeded();
 
-            // If currently fishing, tick the rod's state machine and check for nibble
+            // Waiting for a bite
             if (this.isFishing)
             {
-                this.Companion.TickFishingRod();
-                if (this.Companion.CheckAndHookFish())
+                this.fishingWaitTicks++;
+                if (this.fishingWaitTicks >= this.fishingTargetTicks)
                 {
+                    this.ResolveCatch();
                     this.isFishing = false;
                     this.fishingWaitTicks = 0;
-                    this.actionCooldown = 60; // wait a bit after catching
-                }
-                else
-                {
-                    this.fishingWaitTicks++;
-                    // Timeout after ~5 seconds (300 ticks) with no bite — reel in and retarget
-                    if (this.fishingWaitTicks > 300)
-                    {
-                        this.monitor.Log($"{this.Companion.Name}: Fishing timeout, retargeting", LogLevel.Debug);
-                        this.isFishing = false;
-                        this.fishingWaitTicks = 0;
-                        this.actionCooldown = 30;
-                    }
+                    this.actionCooldown = 120; // ~2s breather, then recast
                 }
                 return;
             }
@@ -379,12 +377,7 @@ namespace StardewMCPBridge
                 float dist = Vector2.Distance(this.npc.Tile, waterTile.Value);
                 if (dist <= 2f)
                 {
-                    // Face the water and cast
-                    if (this.Companion.CastFishingRod())
-                    {
-                        this.isFishing = true;
-                        this.actionCooldown = 30;
-                    }
+                    this.BeginFakeCast(waterTile.Value);
                 }
                 else
                 {
@@ -392,6 +385,80 @@ namespace StardewMCPBridge
                     this.PathTo(new Point((int)waterTile.Value.X, (int)waterTile.Value.Y));
                 }
             }
+        }
+
+        private void BeginFakeCast(Vector2 bobberTile)
+        {
+            this.Companion.Shadow.FaceToward(bobberTile);
+            this.npc.faceDirection(this.Companion.Shadow.FacingDirection);
+            this.fishingBobberTile = bobberTile;
+            this.fishingTargetTicks = Game1.random.Next(900, 2400); // 15-40s @ 60tps
+            this.fishingWaitTicks = 0;
+            this.isFishing = true;
+            this.monitor.Log($"{this.npc.Name}: fishing, bite in {this.fishingTargetTicks / 60}s", LogLevel.Trace);
+        }
+
+        private void ResolveCatch()
+        {
+            var location = this.npc.currentLocation ?? Game1.player?.currentLocation;
+            if (location == null) return;
+
+            Item fish = null;
+            try
+            {
+                // Vanilla fish-table roll: honors location data, season, weather,
+                // time of day, and the built-in trash chance.
+                fish = location.getFish(0f, null, 3, this.Companion.Shadow, 0.0, this.fishingBobberTile);
+            }
+            catch (Exception ex)
+            {
+                this.monitor.Log($"{this.npc.Name}: getFish failed: {ex.Message}", LogLevel.Warn);
+            }
+            if (fish == null)
+            {
+                this.npc.doEmote(Character.sadEmote);
+                return;
+            }
+
+            int difficulty = GetFishDifficulty(fish.ItemId);
+            // Escape roll: easy fish ~20-30%, hard fish way more, trash (diff 0) never escapes
+            double escapeChance = difficulty > 0 ? 0.15 + difficulty / 200.0 : 0.0;
+            var payload = new Dictionary<string, object>
+            {
+                ["fish"] = fish.DisplayName,
+                ["difficulty"] = difficulty,
+                ["location"] = location.Name,
+            };
+
+            if (Game1.random.NextDouble() < escapeChance)
+            {
+                this.npc.doEmote(Character.sadEmote);
+                BridgeEvents.Queue("fish_escaped", this.npc.Name, payload);
+                this.monitor.Log($"{this.npc.Name}: {fish.DisplayName} escaped (diff {difficulty})", LogLevel.Info);
+            }
+            else
+            {
+                this.Companion.Shadow.addItemToInventory(fish);
+                this.npc.doEmote(Character.exclamationEmote);
+                BridgeEvents.Queue("fish_caught", this.npc.Name, payload);
+                this.monitor.Log($"{this.npc.Name}: caught {fish.DisplayName} (diff {difficulty})", LogLevel.Info);
+            }
+        }
+
+        private static int GetFishDifficulty(string itemId)
+        {
+            try
+            {
+                var data = Game1.content.Load<Dictionary<string, string>>("Data\\Fish");
+                if (data != null && data.TryGetValue(itemId, out var raw))
+                {
+                    var fields = raw.Split('/');
+                    if (fields.Length > 1 && int.TryParse(fields[1], out int d))
+                        return d;
+                }
+            }
+            catch { /* trash / non-fish items aren't in Data/Fish */ }
+            return 0;
         }
 
         private Vector2? FindNearestWaterTile()
@@ -429,23 +496,15 @@ namespace StardewMCPBridge
 
         private void DoPlayerMode()
         {
-            // Tick fishing rod if a cast is active
+            // Staged fishing wait (same flow as Fish mode, kicked off by cast_fishing_rod)
             if (this.isFishing)
             {
-                this.Companion.TickFishingRod();
-                if (this.Companion.CheckAndHookFish())
+                this.fishingWaitTicks++;
+                if (this.fishingWaitTicks >= this.fishingTargetTicks)
                 {
+                    this.ResolveCatch();
                     this.isFishing = false;
                     this.fishingWaitTicks = 0;
-                }
-                else
-                {
-                    this.fishingWaitTicks++;
-                    if (this.fishingWaitTicks > 300)
-                    {
-                        this.isFishing = false;
-                        this.fishingWaitTicks = 0;
-                    }
                 }
             }
 
@@ -457,13 +516,14 @@ namespace StardewMCPBridge
         /// <summary>Start fishing (called by MCP cast_fishing_rod command).</summary>
         public bool StartFishing()
         {
-            if (this.Companion.CastFishingRod())
+            var waterTile = this.FindNearestWaterTile();
+            if (!waterTile.HasValue)
             {
-                this.isFishing = true;
-                this.fishingWaitTicks = 0;
-                return true;
+                this.monitor.Log($"{this.npc.Name}: no water nearby to fish", LogLevel.Debug);
+                return false;
             }
-            return false;
+            this.BeginFakeCast(waterTile.Value);
+            return true;
         }
 
         // ====================
