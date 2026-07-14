@@ -22,6 +22,7 @@ namespace StardewMCPBridge
             int facingDir, string name, Texture2D portrait, bool eventActor)
             : base(sprite, position, defaultMap, facingDir, name, portrait, eventActor)
         {
+            this.willDestroyObjectsUnderfoot = false;
         }
 
         /// <summary>
@@ -33,6 +34,9 @@ namespace StardewMCPBridge
         public override bool checkAction(Farmer who, GameLocation l)
         {
             if (who == null || Game1.eventUp)
+                return false;
+
+            if (who.UsingTool)
                 return false;
 
             // The friendship table only knows NPCs the game introduced itself;

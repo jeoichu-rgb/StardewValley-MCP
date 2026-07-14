@@ -86,7 +86,7 @@ function getCompanionInventory(companionName: string): string {
         if (data.companions) {
             const companion = (data.companions as any[]).find((c: any) => c.name === companionName);
             if (companion?.inventory) return JSON.stringify(companion.inventory, null, 2);
-            if (companion) return `Companion "${companionName}" has no inventory data (is it in player mode?).`;
+            if (companion) return `Companion "${companionName}" has no inventory data.`;
         }
         return `Companion "${companionName}" not found in bridge data.`;
     } catch {
@@ -370,6 +370,19 @@ function createServer(): Server {
                         required: ["companion"],
                     },
                 },
+                {
+                    name: "stardew_give_item",
+                    description: "Give an item from companion's inventory to the player. No daily limit — this bypasses the vanilla gift mechanic entirely.",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            companion: { type: "string", enum: COMPANION_ENUM },
+                            slot: { type: "number", description: "Inventory slot index of the item to give." },
+                            quantity: { type: "number", description: "How many to give (default: entire stack)." },
+                        },
+                        required: ["companion", "slot"],
+                    },
+                },
             ],
         }));
 
@@ -547,6 +560,16 @@ function createServer(): Server {
                             actionType: "eat_item",
                             companion: a.companion,
                             ...(a.slot != null ? { slot: a.slot } : {}),
+                        }));
+
+                    case "stardew_give_item":
+                        if (!a.companion || a.slot == null)
+                            return err("companion and slot are required.");
+                        return ok(sendAction({
+                            actionType: "give_item",
+                            companion: a.companion,
+                            slot: a.slot,
+                            ...(a.quantity != null ? { quantity: a.quantity } : {}),
                         }));
 
                     default:

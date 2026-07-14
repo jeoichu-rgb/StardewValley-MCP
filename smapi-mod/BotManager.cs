@@ -129,6 +129,8 @@ namespace StardewMCPBridge
                     };
                 }
 
+                status["inventory"] = companion.GetInventoryData();
+
                 // Include surroundings scan in Player mode (the companion's "eyes")
                 if (ai.Mode == CompanionMode.Player)
                 {
@@ -165,8 +167,6 @@ namespace StardewMCPBridge
                             })
                         };
                     }
-
-                    status["inventory"] = companion.GetInventoryData();
 
                     // Include last command result if any
                     if (this.commandResults.TryGetValue(kvp.Key, out var result))
@@ -568,17 +568,21 @@ namespace StardewMCPBridge
                         bool queueOnly = root.TryGetProperty("queue", out var queueProp) && queueProp.GetBoolean();
                         var npc = companion.Visual;
 
-                        if (emote >= 0)
+                        bool playerBusy = Game1.activeClickableMenu != null
+                            || Game1.dialogueUp
+                            || Game1.eventUp
+                            || Game1.player.UsingTool;
+
+                        if (emote >= 0 && !playerBusy)
                             npc.doEmote(emote);
 
                         if (!string.IsNullOrWhiteSpace(text))
                         {
                             var dialogue = new StardewValley.Dialogue(npc, null, text);
-                            if (queueOnly)
+                            if (queueOnly || playerBusy)
                             {
-                                // Stage it: plays when the player next clicks us
                                 npc.CurrentDialogue.Push(dialogue);
-                                detail = "Dialogue staged for next interaction";
+                                detail = playerBusy ? "Player busy — dialogue queued" : "Dialogue staged for next interaction";
                             }
                             else
                             {
@@ -600,6 +604,58 @@ namespace StardewMCPBridge
                     {
                         success = ai.StartFishing();
                         detail = success ? "Cast fishing rod" : "Failed to cast";
+                        break;
+                    }
+
+                    // --- Give item to player (no daily limit) ---
+                    case "give_item":
+                    {
+                        int slot = root.TryGetProperty("slot", out var slotProp2) ? slotProp2.GetInt32() : -1;
+                        int quantity = root.TryGetProperty("quantity", out var qtyProp) ? qtyProp.GetInt32() : -1;
+                        var items = companion.Shadow.Items;
+
+                        if (slot < 0 || slot >= items.Count || items[slot] == null)
+                        {
+                            detail = $"No item in slot {slot}";
+                            break;
+                        }
+
+                        var itemToGive = items[slot];
+                        if (itemToGive is Tool)
+                        {
+                            detail = "Can't give away tools";
+                            break;
+                        }
+
+                        int giveCount = quantity > 0 ? Math.Min(quantity, itemToGive.Stack) : itemToGive.Stack;
+
+                        Item toAdd;
+                        if (giveCount >= itemToGive.Stack)
+                        {
+                            toAdd = itemToGive;
+                            items[slot] = null;
+                        }
+                        else
+                        {
+                            toAdd = itemToGive.getOne();
+                            toAdd.Stack = giveCount;
+                            itemToGive.Stack -= giveCount;
+                        }
+
+                        var leftover = Game1.player.addItemToInventory(toAdd);
+                        if (leftover != null)
+                        {
+                            if (items[slot] == null)
+                                items[slot] = leftover;
+                            else
+                                items[slot].Stack += leftover.Stack;
+                            detail = "Player inventory is full";
+                        }
+                        else
+                        {
+                            success = true;
+                            detail = $"Gave {giveCount}x {toAdd.DisplayName} to player";
+                        }
                         break;
                     }
 
